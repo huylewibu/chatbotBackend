@@ -141,4 +141,5 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CORS configuration
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Frontend Next.js chạy tại localhost:3000
+    "https://main.d2gav7uil9elgs.amplifyapp.com"
 ]
