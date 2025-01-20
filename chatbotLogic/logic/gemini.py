@@ -31,28 +31,18 @@ safety_settings = [
         "threshold": "BLOCK_LOW_AND_ABOVE",
     },
 ]
-# model = genai.GenerativeModel(
-#         model_name="gemini-2.0-flash-exp",
-#         generation_config=generation_config,
-#         # system_instruction="This is a new chat, and user ask you. No rely and comment just answer for this chat, Max length is 20 characters and Vietnamese name is preferred"
-#     )
-# client = OpenAI(
-#     base_url=BASE_URL,
-#     api_key=API_KEY
-# )
 
 def chat_logic(message, chat_history=[], is_rename_prompt=False):
     try:
-        messages = [{"role": "user", "content": msg["content"]} for msg in chat_history]
+        messages = [{"role": msg["role"], "content": msg["content"]} for msg in chat_history]
         messages.append({"role": "user", "content": message})
         
         if is_rename_prompt:
-            system_instruction = (
+            prompt = (
                 f"This is a new chat, and user asked: {message}. "
                 "Provide a suitable name for the chat. No reply or comment, "
                 "just the name in maximum 20 characters, and Vietnamese preferred."
             )
-            prompt = system_instruction.format(content=message)
             messages.append({"role": "system", "content": prompt})
             
         chat_completion = openai.ChatCompletion.create(
