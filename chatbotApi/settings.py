@@ -77,14 +77,25 @@ WSGI_APPLICATION = 'chatbotApi.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'chatbotAPI',
+#         'USER': 'postgres',
+#         'PASSWORD': 'Yukino1234',
+#         'HOST': 'localhost',
+#         'PORT': '5432',
+#     }
+# }
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'chatbotAPI',
-        'USER': 'postgres',
-        'PASSWORD': 'Yukino1234',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': 'chatbot_api_k78x',                  # Tên database (phần cuối của URL)
+        'USER': 'admin',                             # Username (trước dấu :)
+        'PASSWORD': 'qJYsqI5RS2yATbOH2nIQBaacoasAk7Vi',  # Mật khẩu (sau dấu :)
+        'HOST': 'dpg-cu7bovbv2p9s73bf9rk0-a.singapore-postgres.render.com',  # Host (sau dấu @)
+        'PORT': '5432',                              # Port (nếu không rõ, thường mặc định là 5432)
     }
 }
 
