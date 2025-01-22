@@ -7,13 +7,14 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.utils.timezone import now
+from .models import ChatInfo
+from .utils import error_response
 
 class ChatbotAPI(APIView):
     def post(self, request):
-        print("request 1: ", request.data)
         user_input = request.data.get('message', '')
         chat_history = request.data.get('chat_history', [])
-        print("request: ", request.data)
         if not user_input:
             return Response({"error": "No input provided"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -25,22 +26,95 @@ class ChatbotAPI(APIView):
         except Exception as e:
             print(f"Error in generate_response: {e}")
             bot_response = "Lỗi xảy ra khi xử lý phản hồi từ bot."
-
+            return error_response("BOT_PROCESSING_ERROR", "Lỗi xảy ra khi xử lý phản hồi từ bot.", status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
         return Response({"user_message": user_input, "bot_response": bot_response})
-    
+
+class AddChatAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        username = request.user.username
+        title = request.data.get('title', 'New Chat')
+
+        try:
+            new_chat = ChatInfo.objects.create(
+                username = username,
+                title = title,
+                new_title=None,
+                created_at = now(),
+                updated_at = now()
+            )
+
+            return Response(
+                {
+                    "message": "Chat created successfully",
+                    "chat": {
+                        "id": new_chat.id,
+                        "title": new_chat.title,
+                        "new_title": new_chat.new_title,
+                        "username": new_chat.username,
+                        "created_at": new_chat.created_at,
+                        "updated_at": new_chat.updated_at,
+                    },
+                },
+                status=status.HTTP_201_CREATED
+            )
+        except Exception as e:
+            return error_response("CREATE_CHAT_ERROR", f"Failed to create chat: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class GetChatsAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            username = request.user.username
+            chats = ChatInfo.objects.filter(username=username).order_by("-updated_at")
+            data = []
+
+            for chat in chats:
+                messages = chat.chatmessage_set.all().order_by("created_at")
+                chat_data = {
+                    "id": chat.id,
+                    "title": chat.title,
+                    "messages": [
+                        {
+                            "id": message.id,
+                            "message": message.message,
+                            "is_bot": message.is_bot,
+                            "created_at": message.created_at,
+                        }
+                        for message in messages
+                    ],
+                    "created_at": chat.created_at,
+                    "updated_at": chat.updated_at,
+                }
+                data.append(chat_data)
+
+            return Response({"chats": data}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return error_response("LOAD_CHAT_ERROR", f"Failed to load chats: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class RenameChatAPI(APIView):
     def post(self, request):
         user_input = request.data.get('message', '')
+        chat_id = request.data.get('chat_id')
+        print("chat_id: ", chat_id)
         if not user_input:
             return Response({"error": "No input provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             # Gọi hàm generate_chat_name
             chat_name = generate_chat_name(user_input)
+            if chat_id:
+                chat = ChatInfo.objects.get(id=chat_id, username=request.user.username)
+                print("chat: ", chat)
+                chat.new_title = chat_name
+                chat.save()
         except Exception as e:
             print(f"Error in generate_chat_name: {e}")
-            chat_name = "Cuộc trò chuyện mới"
-
+            return error_response("RENAME_CHAT_ERROR", "Failed to generate chat name.", status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({"chat_name": chat_name})
     
 class UpdateMessageAPI(APIView):
@@ -62,7 +136,7 @@ class UpdateMessageAPI(APIView):
                 bot_response = "Không nhận được phản hồi từ bot."  # Đáp ứng mặc định nếu không có kết quả
         except Exception as e:
             print(f"Error in generate_response: {e}")
-            bot_response = "Lỗi xảy ra khi xử lý phản hồi từ bot."
+            return error_response("BOT_PROCESSING_ERROR", "Lỗi xảy ra khi xử lý phản hồi từ bot.", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Trả về phản hồi mới từ bot
         return Response({
@@ -83,29 +157,47 @@ class RegisterAPI(APIView):
         if User.objects.filter(username=username).exists():
             return Response({"error": "Username already exists."}, status=400)
         
-        user = User.objects.create_user(username=username, email=email, password=password)
-        
-        # Tạo JWT token ngay sau khi đăng ký
-        refresh = RefreshToken.for_user(user)
-        access_token = str(refresh.access_token)
-        
-        return Response({
-            "message": "Registration successful.",
-            "username": username,
-            "access_token": access_token,
-            "refresh_token": str(refresh),
-        })
+        try:
+            user = User.objects.create_user(username=username, email=email, password=password)
+            # Tạo JWT token ngay sau khi đăng ký
+            refresh = RefreshToken.for_user(user)
+            access_token = str(refresh.access_token)
+            
+            return Response({
+                "message": "Registration successful.",
+                "username": username,
+                "access_token": access_token,
+                "refresh_token": str(refresh),
+            })
+        except Exception as e:
+            return error_response("REGISTER_ERROR", f"Failed to register: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class UserInfoAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
-        return Response({
-            "username": user.username,
-            "email": user.email,
-            "last_login": user.last_login,
-        }, status=status.HTTP_200_OK)
+        try:
+            user = request.user
+            return Response({
+                "username": user.username,
+                "email": user.email,
+                "last_login": user.last_login,
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return error_response("FETCH_USER_INFO_ERROR", f"Failed to fetch user info: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+class RemoveChatApi(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, chat_id):
+        try:
+            chat = ChatInfo.objects.get(id=chat_id, username=request.user.username)
+            chat.delete()
+            return Response({"message": "Chat removed successfully."}, status=status.HTTP_200_OK)
+        except ChatInfo.DoesNotExist:
+            return error_response("CHAT_NOT_FOUND", "Chat not found.", status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return error_response("DELETE_CHAT_ERROR", f"Failed to delete chat: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
