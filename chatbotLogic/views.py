@@ -8,27 +8,71 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.utils.timezone import now
-from .models import ChatInfo
+from .models import ChatInfo, ChatMessage
 from .utils import error_response
 
 class ChatbotAPI(APIView):
     def post(self, request):
         user_input = request.data.get('message', '')
+        chat_id = request.data.get('chat_id')
         chat_history = request.data.get('chat_history', [])
-        if not user_input:
-            return Response({"error": "No input provided"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Xử lý logic chatbot
+        if not user_input or not chat_id:
+            return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
+            # Kiểm tra nếu chat_id tồn tại trong database
+            chat_id = ChatInfo.objects.filter(id=chat_id).first()
+            if not chat_id:
+                # Nếu không tồn tại, trả về lỗi
+                return Response({"error": "Chat not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Tạo tin nhắn của người dùng
+            user_message = ChatMessage.objects.create(
+                chat=chat_id,
+                is_bot=False,
+                message=user_input,
+                sequence=len(chat_id.message.all()) + 1,  # Đếm số lượng tin nhắn
+                created_at=now()
+            )
+            
+            # Xử lý phản hồi từ bot
             bot_response = generate_response(user_input, chat_history)
             if not bot_response:
-                bot_response = "Không nhận được phản hồi từ bot."  # Đáp ứng mặc định nếu không có kết quả
+                bot_response = "Không nhận được phản hồi từ bot."
+            # Tạo tin nhắn phản hồi từ bot
+            bot_message = ChatMessage.objects.create(
+                chat=chat_id,
+                is_bot=True,
+                message=bot_response,
+                sequence=user_message.sequence + 1,
+                created_at=now()
+            )
+
+            # Cập nhật thời gian cập nhật
+            chat_id.updated_at = now()
+            chat_id.save()
+
+            # Trả về kết quả
+            return Response({
+                "user_message": {
+                    "id": user_message.id,
+                    "message": user_message.message,
+                    "is_bot": user_message.is_bot,
+                    "created_at": user_message.created_at,
+                },
+                "bot_response": {
+                    "id": bot_message.id,
+                    "message": bot_message.message,
+                    "is_bot": bot_message.is_bot,
+                    "created_at": bot_message.created_at,
+                }
+            }, status=status.HTTP_200_OK)
+
         except Exception as e:
-            print(f"Error in generate_response: {e}")
-            bot_response = "Lỗi xảy ra khi xử lý phản hồi từ bot."
+            print(f"Error in ChatbotAPI: {e}")
             return error_response("BOT_PROCESSING_ERROR", "Lỗi xảy ra khi xử lý phản hồi từ bot.", status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        return Response({"user_message": user_input, "bot_response": bot_response})
+
 
 class AddChatAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -100,7 +144,6 @@ class RenameChatAPI(APIView):
     def post(self, request):
         user_input = request.data.get('message', '')
         chat_id = request.data.get('chat_id')
-        print("chat_id: ", chat_id)
         if not user_input:
             return Response({"error": "No input provided"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -109,7 +152,6 @@ class RenameChatAPI(APIView):
             chat_name = generate_chat_name(user_input)
             if chat_id:
                 chat = ChatInfo.objects.get(id=chat_id, username=request.user.username)
-                print("chat: ", chat)
                 chat.new_title = chat_name
                 chat.save()
         except Exception as e:
@@ -119,21 +161,30 @@ class RenameChatAPI(APIView):
     
 class UpdateMessageAPI(APIView):
     def post(self, request):
-        # Lấy dữ liệu từ request
         chat_id = request.data.get("chat_id", "")
         message_id = request.data.get("message_id", "")
-        new_question = request.data.get("new_text", "")
+        new_text = request.data.get("new_text", "")
         chat_history = request.data.get("chat_history", [])
 
-        if not new_question:
+        print("chat_id: ", chat_id)
+        print("message_id: ", message_id)
+        print("new_text: ", new_text)
+
+        if not new_text:
             return Response({"error": "No input provided"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        chat_id_message = ChatMessage.objects.filter(chat_id=chat_id)
+        print("chat_id_message: ", chat_id_message.first())
+        if not chat_id_message:
+            return Response({"error": "Chat not found"}, status=status.HTTP_404_NOT_FOUND)
 
         # Xử lý logic chatbot
         try:
             # Gửi câu hỏi đã chỉnh sửa đến bot
-            bot_response = generate_response(new_question, chat_history)
+            bot_response = generate_response(new_text, chat_history)
             if not bot_response:
                 bot_response = "Không nhận được phản hồi từ bot."  # Đáp ứng mặc định nếu không có kết quả
+        
         except Exception as e:
             print(f"Error in generate_response: {e}")
             return error_response("BOT_PROCESSING_ERROR", "Lỗi xảy ra khi xử lý phản hồi từ bot.", status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -141,7 +192,7 @@ class UpdateMessageAPI(APIView):
         # Trả về phản hồi mới từ bot
         return Response({
             "message_id": message_id,
-            "new_text": new_question,
+            "new_text": new_text,
             "bot_response": bot_response
         })
     
