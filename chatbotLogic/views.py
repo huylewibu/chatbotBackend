@@ -9,6 +9,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.utils.timezone import now
 from .models import ChatInfo, ChatMessage
+import uuid
 from .utils import error_response
 
 class ChatbotAPI(APIView):
@@ -16,6 +17,7 @@ class ChatbotAPI(APIView):
         user_input = request.data.get('message', '')
         chat_id = request.data.get('chat_id')
         chat_history = request.data.get('chat_history', [])
+
 
         if not user_input or not chat_id:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
@@ -26,14 +28,13 @@ class ChatbotAPI(APIView):
             if not chat_id:
                 # Nếu không tồn tại, trả về lỗi
                 return Response({"error": "Chat not found"}, status=status.HTTP_404_NOT_FOUND)
-
             # Tạo tin nhắn của người dùng
             user_message = ChatMessage.objects.create(
                 chat=chat_id,
                 is_bot=False,
                 message=user_input,
                 sequence=len(chat_id.message.all()) + 1,  # Đếm số lượng tin nhắn
-                created_at=now()
+                created_at=now(),
             )
             
             # Xử lý phản hồi từ bot
@@ -46,7 +47,7 @@ class ChatbotAPI(APIView):
                 is_bot=True,
                 message=bot_response,
                 sequence=user_message.sequence + 1,
-                created_at=now()
+                created_at=now(),
             )
 
             # Cập nhật thời gian cập nhật
@@ -166,17 +167,21 @@ class UpdateMessageAPI(APIView):
         new_text = request.data.get("new_text", "")
         chat_history = request.data.get("chat_history", [])
 
-        print("chat_id: ", chat_id)
-        print("message_id: ", message_id)
-        print("new_text: ", new_text)
+        print("chat_id", chat_id)
+        print("message_id", message_id)
+        print("new_text", new_text)
+        print("chat_history", chat_history)
 
         if not new_text:
             return Response({"error": "No input provided"}, status=status.HTTP_400_BAD_REQUEST)
         
-        chat_id_message = ChatMessage.objects.filter(chat_id=chat_id)
-        print("chat_id_message: ", chat_id_message.first())
-        if not chat_id_message:
-            return Response({"error": "Chat not found"}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            user_message = ChatMessage.objects.get(chat_id=chat_id, id=message_id, is_bot=False)
+            user_message.message = new_text
+            user_message.save()
+            print("user_message: ", user_message)
+        except ChatMessage.DoesNotExist:
+            return Response({"error": "Message not found"}, status=status.HTTP_404_NOT_FOUND)
 
         # Xử lý logic chatbot
         try:
@@ -185,6 +190,14 @@ class UpdateMessageAPI(APIView):
             if not bot_response:
                 bot_response = "Không nhận được phản hồi từ bot."  # Đáp ứng mặc định nếu không có kết quả
         
+            try:
+                bot_message = ChatMessage.objects.get(chat_id=chat_id, sequence=user_message.sequence + 1, is_bot=True)
+                bot_message.message = bot_response 
+                print("bot_message: ", bot_message)
+                bot_message.save()
+            except ChatMessage.DoesNotExist:
+                return Response({"error": "Bot message not found"}, status=status.HTTP_404_NOT_FOUND)
+
         except Exception as e:
             print(f"Error in generate_response: {e}")
             return error_response("BOT_PROCESSING_ERROR", "Lỗi xảy ra khi xử lý phản hồi từ bot.", status.HTTP_500_INTERNAL_SERVER_ERROR)

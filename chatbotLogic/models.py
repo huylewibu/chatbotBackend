@@ -33,7 +33,6 @@ class ChatMessage(models.Model):
     message = models.TextField()
     sequence = models.IntegerField()
     created_at = models.DateTimeField(default=now)
-    message_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
 
     def __str__(self):
         return f"Message {self.id} in Chat {self.chat.title}"
