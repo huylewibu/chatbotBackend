@@ -90,7 +90,7 @@ WSGI_APPLICATION = 'chatbotApi.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
+        'ENGINE': 'psqlextra.backend',
         'NAME': 'chatbot_api_k78x',                  
         'USER': 'admin',                             
         'PASSWORD': 'qJYsqI5RS2yATbOH2nIQBaacoasAk7Vi',  

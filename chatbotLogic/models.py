@@ -1,6 +1,8 @@
 from django.db import models
 from django.utils.timezone import now
 import uuid
+from psqlextra.models import PostgresPartitionedModel
+from psqlextra.types import PostgresPartitioningMethod
 
 class Login(models.Model):
     username = models.CharField(max_length=150, unique=True)
@@ -13,7 +15,6 @@ class Login(models.Model):
 class ChatInfo(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255, default="New Chat")  
-    new_title = models.CharField(max_length=255, null=True, blank=True)
     username = models.CharField(max_length=50)
     created_at = models.DateTimeField(default=now)
     updated_at = models.DateTimeField(default=now)
@@ -21,7 +22,7 @@ class ChatInfo(models.Model):
     def __str__(self):
         return f"{self.title} by {self.username}"
     
-class ChatMessage(models.Model):
+class ChatMessage(PostgresPartitionedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     chat = models.ForeignKey(
         ChatInfo, 

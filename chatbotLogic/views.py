@@ -9,7 +9,6 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.utils.timezone import now
 from .models import ChatInfo, ChatMessage
-import uuid
 from .utils import error_response
 
 class ChatbotAPI(APIView):
@@ -80,13 +79,12 @@ class AddChatAPI(APIView):
 
     def post(self, request):
         username = request.user.username
-        title = request.data.get('title', 'New Chat')
+        title = request.data.get('title', '')
 
         try:
             new_chat = ChatInfo.objects.create(
                 username = username,
                 title = title,
-                new_title=None,
                 created_at = now(),
                 updated_at = now()
             )
@@ -97,7 +95,6 @@ class AddChatAPI(APIView):
                     "chat": {
                         "id": new_chat.id,
                         "title": new_chat.title,
-                        "new_title": new_chat.new_title,
                         "username": new_chat.username,
                         "created_at": new_chat.created_at,
                         "updated_at": new_chat.updated_at,
@@ -113,52 +110,85 @@ class GetChatsAPI(APIView):
 
     def get(self, request):
         try:
-            username = request.user.username
-            chats = ChatInfo.objects.filter(username=username).order_by("-updated_at")
-            data = []
+            chats = ChatInfo.objects.filter(username=request.user.username).order_by("-updated_at")
 
-            for chat in chats:
-                messages = chat.chatmessage_set.all().order_by("created_at")
-                chat_data = {
+            chats_data = [
+                {
                     "id": chat.id,
                     "title": chat.title,
-                    "messages": [
-                        {
-                            "id": message.id,
-                            "message": message.message,
-                            "is_bot": message.is_bot,
-                            "created_at": message.created_at,
-                        }
-                        for message in messages
-                    ],
-                    "created_at": chat.created_at,
                     "updated_at": chat.updated_at,
                 }
-                data.append(chat_data)
-
-            return Response({"chats": data}, status=status.HTTP_200_OK)
+                for chat in chats
+            ]
+            return Response({"chats": chats_data}, status=status.HTTP_200_OK)
         except Exception as e:
             return error_response("LOAD_CHAT_ERROR", f"Failed to load chats: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+class GetMessagesByChatAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, chat_id):
+        try:
+            # Lấy đoạn chat dựa trên chat_id và username của user hiện tại
+            chat = ChatInfo.objects.get(id=chat_id, username=request.user.username)
+
+            # Lấy danh sách tin nhắn thuộc về đoạn chat
+            messages = ChatMessage.objects.filter(chat_id=chat.id).order_by("sequence")
+
+            # Chuyển đổi tin nhắn thành định dạng JSON
+            message_data = [
+                {
+                    "id": message.id,
+                    "message": message.message,
+                    "is_bot": message.is_bot,
+                    "sequence": message.sequence,
+                    "created_at": message.created_at,
+                }
+                for message in messages
+            ]
+
+            # Trả về thông tin đoạn chat và danh sách tin nhắn
+            return Response({
+                "chat": {
+                    "id": chat.id,
+                    "title": chat.title,
+                    "created_at": chat.created_at,
+                    "updated_at": chat.updated_at,
+                },
+                "message_data": message_data,
+            }, status=status.HTTP_200_OK)
+
+        except ChatInfo.DoesNotExist:
+            return Response({"error": "Chat not found."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return error_response("LOAD_MESSAGES_ERROR", f"Failed to load messages: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class RenameChatAPI(APIView):
     def post(self, request):
         user_input = request.data.get('message', '')
         chat_id = request.data.get('chat_id')
+
         if not user_input:
             return Response({"error": "No input provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Gọi hàm generate_chat_name
             chat_name = generate_chat_name(user_input)
-            if chat_id:
-                chat = ChatInfo.objects.get(id=chat_id, username=request.user.username)
-                chat.new_title = chat_name
-                chat.save()
+
+            rows_updated = ChatInfo.objects.filter(id=chat_id).update(
+                title=chat_name,
+            )
+            # Kiểm tra xem có bản ghi nào được cập nhật không
+            if rows_updated == 0:
+                return Response({"error": "Chat not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"chat_name": chat_name}, status=status.HTTP_200_OK)
+
         except Exception as e:
-            print(f"Error in generate_chat_name: {e}")
-            return error_response("RENAME_CHAT_ERROR", "Failed to generate chat name.", status.HTTP_500_INTERNAL_SERVER_ERROR)
-        return Response({"chat_name": chat_name})
+            print(f"Error in RenameChatAPI: {e}")
+            return error_response(
+                "RENAME_CHAT_ERROR",
+                "Failed to rename chat.",
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
     
 class UpdateMessageAPI(APIView):
     def post(self, request):
@@ -166,11 +196,6 @@ class UpdateMessageAPI(APIView):
         message_id = request.data.get("message_id", "")
         new_text = request.data.get("new_text", "")
         chat_history = request.data.get("chat_history", [])
-
-        print("chat_id", chat_id)
-        print("message_id", message_id)
-        print("new_text", new_text)
-        print("chat_history", chat_history)
 
         if not new_text:
             return Response({"error": "No input provided"}, status=status.HTTP_400_BAD_REQUEST)
