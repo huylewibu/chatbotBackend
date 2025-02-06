@@ -2,6 +2,7 @@ import google.generativeai as genai
 import os
 import absl.logging
 from dotenv import load_dotenv
+from .generative_image import generate_image_prompt
 # import openai
 
 absl.logging.set_verbosity(absl.logging.ERROR)
@@ -35,13 +36,32 @@ safety_settings = [
 ]
 
 model = genai.GenerativeModel(
-    model_name="gemini-exp-1206",
+    model_name="gemini-2.0-flash",
     generation_config=generation_config,
     safety_settings=safety_settings,
 )
 
 def chat_logic(message, chat_history=[], is_rename_prompt=False):
     try:
+        check_prompt = f"User asked: '{message}'. Is that a request to generate images? Please answer only 'yes' or 'no'."    
+        check_response = model.generate_content(check_prompt)
+        is_image_request = "yes" in check_response.candidates[0].content.parts[0].text.lower()
+
+        if is_image_request:
+            num_prompt = f"User asked: '{message}'. How many images are requested? Return only the number."
+            num_response = model.generate_content(num_prompt)
+
+            try:
+                num_response_text = num_response.candidates[0].content.parts[0].text.strip()
+                number_images = int(num_response_text)
+                if number_images < 1:
+                    number_images = 1
+            except ValueError:
+                number_images = 1
+            print("number_images: ", number_images)
+            image_response = generate_image_prompt(message, number_images)
+            return {"type": "image", "bot_response": image_response.get("images", [])}
+
         gemini_chat_history = [
             {"role": "user" if msg["role"] == "user" else "model", "parts": [msg["content"]]}
             for msg in chat_history
@@ -51,7 +71,7 @@ def chat_logic(message, chat_history=[], is_rename_prompt=False):
         
         if is_rename_prompt:
             system_prompt  = (
-                f"This is a new chat, and user asked: '{message}'. "
+                f"This is a new chat, and user asked: {message}. "
                 "Based on this initial message, suggest a concise and relevant title for the chat. "
                 "The title should reflect the likely topic or theme of the conversation, "
                 "be in the same language as the user's message, and be no longer than 20 characters. "
@@ -61,7 +81,14 @@ def chat_logic(message, chat_history=[], is_rename_prompt=False):
             
         chat_session = model.start_chat(history=gemini_chat_history)
         response = chat_session.send_message(message)
-        return {"bot_response": response.text.strip()}
+        if hasattr(response, "text"):
+            bot_response_text = response.text.strip()
+        elif hasattr(response, "candidates") and len(response.candidates) > 0:
+            bot_response_text = response.candidates[0].content.parts[0].text.strip()
+        else:
+            bot_response_text = "Không nhận được phản hồi từ bot."
+        return {"type": "text", "bot_response": bot_response_text}
+
     except Exception as e:
         print("Error:", str(e))
-        return {"bot_response": "Lỗi xảy ra trong quá trình xử lý."}
+        return {"type": "text", "bot_response": "Lỗi xảy ra trong quá trình xử lý."}

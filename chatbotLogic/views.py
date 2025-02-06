@@ -1,22 +1,25 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .logic.chatbot import generate_response, generate_chat_name
-from django.contrib.auth.models import User
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.contrib.auth.models import User
 from django.utils.timezone import now
+from django.http import JsonResponse
 from .models import ChatInfo, ChatMessage
 from .utils import error_response
+from .logic.chatbot import generate_response, generate_chat_name
+from .logic.generative_image import generate_image_prompt
+from .logic.process_image import process_image
 
 class ChatbotAPI(APIView):
     def post(self, request):
         user_input = request.data.get('message', '')
         chat_id = request.data.get('chat_id')
         chat_history = request.data.get('chat_history', [])
-
+        image_base64 = request.data.get('image_base64')
 
         if not user_input or not chat_id:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
@@ -36,39 +39,71 @@ class ChatbotAPI(APIView):
                 created_at=now(),
             )
             
-            # Xử lý phản hồi từ bot
-            bot_response = generate_response(user_input, chat_history)
-            if not bot_response:
-                bot_response = "Không nhận được phản hồi từ bot."
-            # Tạo tin nhắn phản hồi từ bot
-            bot_message = ChatMessage.objects.create(
-                chat=chat_id,
-                is_bot=True,
-                message=bot_response,
-                sequence=user_message.sequence + 1,
-                created_at=now(),
-            )
+            bot_response = None
+            if image_base64:
+                # Nếu có ảnh, xử lý và mô tả ảnh
+                bot_response = process_image(image_base64, user_input or "Mô tả nội dung của bức ảnh này.")
+            else:
+                # Nếu không có ảnh, xử lý như tin nhắn văn bản bình thường
+                bot_response = generate_response(user_input, chat_history)
 
-            # Cập nhật thời gian cập nhật
-            chat_id.updated_at = now()
-            chat_id.save()
-
-            # Trả về kết quả
-            return Response({
-                "user_message": {
-                    "id": user_message.id,
-                    "message": user_message.message,
-                    "is_bot": user_message.is_bot,
-                    "created_at": user_message.created_at,
-                },
-                "bot_response": {
-                    "id": bot_message.id,
-                    "message": bot_message.message,
-                    "is_bot": bot_message.is_bot,
-                    "created_at": bot_message.created_at,
-                }
-            }, status=status.HTTP_200_OK)
-
+            if not isinstance(bot_response, dict):
+                return error_response(
+                    "INVALID_BOT_RESPONSE",
+                    "Phản hồi từ bot không hợp lệ.",
+                    status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            if bot_response.get("type") == "image":
+                bot_message = ChatMessage.objects.create(
+                    chat=chat_id,
+                    is_bot=True,
+                    message="Generated images",  # Lưu thông báo vào cơ sở dữ liệu
+                    sequence=user_message.sequence + 1,
+                    created_at=now(),
+                )
+                # Trả về kết quả với type là "image"
+                return Response({
+                    "user_message": {
+                        "id": user_message.id,
+                        "message": user_message.message,
+                        "is_bot": user_message.is_bot,
+                        "created_at": user_message.created_at,
+                    },
+                    "bot_response": {
+                        "id": bot_message.id,
+                        "type": "image",
+                        "images": bot_response.get("images", []),
+                        "is_bot": True,
+                        "created_at": bot_message.created_at,
+                    }
+                }, status=status.HTTP_200_OK)
+            else:
+                # Nếu là yêu cầu văn bản
+                bot_message = ChatMessage.objects.create(
+                    chat=chat_id,
+                    is_bot=True,
+                    message=bot_response["bot_response"],
+                    sequence=user_message.sequence + 1,
+                    created_at=now(),
+                )
+                # Trả về kết quả với type là "text"
+                return Response({
+                    "user_message": {
+                        "id": user_message.id,
+                        "message": user_message.message,
+                        "is_bot": user_message.is_bot,
+                        "created_at": user_message.created_at,
+                    },
+                    "bot_response": {
+                        "id": bot_message.id,
+                        "type": "text",
+                        "message": bot_response["bot_response"],
+                        "is_bot": True,
+                        "created_at": bot_message.created_at,
+                    }
+                }, status=status.HTTP_200_OK)
+            
         except Exception as e:
             print(f"Error in ChatbotAPI: {e}")
             return error_response("BOT_PROCESSING_ERROR", "Lỗi xảy ra khi xử lý phản hồi từ bot.", status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -165,14 +200,27 @@ class GetMessagesByChatAPI(APIView):
 
 class RenameChatAPI(APIView):
     def post(self, request):
-        user_input = request.data.get('message', '')
+        new_title = request.data.get('new_title', '').strip()
+        message = request.data.get('message', '')
         chat_id = request.data.get('chat_id')
 
-        if not user_input:
-            return Response({"error": "No input provided"}, status=status.HTTP_400_BAD_REQUEST)
+        if not chat_id:
+            return Response({"error": "Chat ID is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            chat_name = generate_chat_name(user_input)
+            if new_title:
+                rows_updated = ChatInfo.objects.filter(id=chat_id).update(
+                    title=new_title,
+                )
+                if rows_updated == 0:
+                    return Response({"error": "Chat not found"}, status=status.HTTP_404_NOT_FOUND)
+                return Response({"chat_name": new_title}, status=status.HTTP_200_OK)
+
+            # Nếu không có new_title, sử dụng user_input để tự động đổi tên chat
+            if not message:
+                return Response({"error": "No input provided"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            chat_name = generate_chat_name(message, new_title)
 
             rows_updated = ChatInfo.objects.filter(id=chat_id).update(
                 title=chat_name,
@@ -287,6 +335,19 @@ class RemoveChatApi(APIView):
             return error_response("CHAT_NOT_FOUND", "Chat not found.", status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return error_response("DELETE_CHAT_ERROR", f"Failed to delete chat: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class GenerateImageAPI(APIView):
+    def post(self, request):
+        prompt = request.data.get("prompt", "")
+        number_images = request.data.get("number_images", 1)
+
+        if not prompt:
+            return Response({"error": "Missing prompt"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Gọi hàm tạo ảnh từ Gemini AI
+        image_response = generate_image_prompt(prompt, number_images)
+
+        return JsonResponse(image_response)
     
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -309,3 +370,4 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 # Custom view
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
