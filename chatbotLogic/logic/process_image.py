@@ -10,7 +10,6 @@ genai.configure(api_key=API_KEY)
 
 def process_image(image_data, prompt="Mô tả nội dung của bức ảnh này."):
     try:
-        # Khởi tạo mô hình Gemini
         model = genai.GenerativeModel(model_name="gemini-2.0-flash-thinking-exp-01-21")
         
         # Kiểm tra nếu image_data là mảng
