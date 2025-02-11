@@ -11,6 +11,7 @@ from django.http import JsonResponse
 from .models import ChatInfo, ChatMessage
 from .utils import error_response
 from .logic.chatbot import generate_response, generate_chat_name
+from .logic.upload_image_cloudinary import upload_image_to_cloudinary
 from .logic.generative_image import generate_image_prompt
 from .logic.process_image import process_image
 
@@ -19,7 +20,7 @@ class ChatbotAPI(APIView):
         user_input = request.data.get('message', '')
         chat_id = request.data.get('chat_id')
         chat_history = request.data.get('chat_history', [])
-        image_base64 = request.data.get('image_base64')
+        image_base64 = request.data.get('image_base64', [])
 
         if not user_input or not chat_id:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
@@ -30,6 +31,11 @@ class ChatbotAPI(APIView):
             if not chat_id:
                 # Nếu không tồn tại, trả về lỗi
                 return Response({"error": "Chat not found"}, status=status.HTTP_404_NOT_FOUND)
+            
+            image_urls = upload_image_to_cloudinary(image_base64)
+
+            image_urls_str = ",".join(image_urls) if image_urls else None
+            
             # Tạo tin nhắn của người dùng
             user_message = ChatMessage.objects.create(
                 chat=chat_id,
@@ -37,6 +43,8 @@ class ChatbotAPI(APIView):
                 message=user_input,
                 sequence=len(chat_id.message.all()) + 1,  # Đếm số lượng tin nhắn
                 created_at=now(),
+                is_has_image=bool(image_urls),  # Nếu có ảnh thì đặt là True
+                image_url=image_urls_str
             )
             
             bot_response = None
@@ -94,6 +102,8 @@ class ChatbotAPI(APIView):
                         "message": user_message.message,
                         "is_bot": user_message.is_bot,
                         "created_at": user_message.created_at,
+                        "is_has_image": user_message.is_has_image,
+                        "image_url": user_message.image_url,
                     },
                     "bot_response": {
                         "id": bot_message.id,
@@ -145,11 +155,13 @@ class GetChatsAPI(APIView):
 
     def get(self, request):
         try:
+            username = request.user.username
             chats = ChatInfo.objects.filter(username=request.user.username).order_by("-updated_at")
 
             chats_data = [
                 {
                     "id": chat.id,
+                    "username": chat.username,
                     "title": chat.title,
                     "updated_at": chat.updated_at,
                 }
@@ -178,6 +190,8 @@ class GetMessagesByChatAPI(APIView):
                     "is_bot": message.is_bot,
                     "sequence": message.sequence,
                     "created_at": message.created_at,
+                    "is_has_image": message.is_has_image,
+                    "image_url": message.image_url,
                 }
                 for message in messages
             ]
@@ -187,6 +201,7 @@ class GetMessagesByChatAPI(APIView):
                 "chat": {
                     "id": chat.id,
                     "title": chat.title,
+                    "username": chat.username,
                     "created_at": chat.created_at,
                     "updated_at": chat.updated_at,
                 },

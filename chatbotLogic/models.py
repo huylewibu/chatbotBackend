@@ -34,6 +34,8 @@ class ChatMessage(PostgresPartitionedModel):
     message = models.TextField()
     sequence = models.IntegerField()
     created_at = models.DateTimeField(default=now)
+    is_has_image = models.BooleanField(default=False)
+    image_url = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return f"Message {self.id} in Chat {self.chat.title}"

@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-#-5a+sxrldjn&u2ju&yv79&3^_6#my3qg$7dn+i(=9%_%uhpc0
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['chatbotbackend-609r.onrender.com', '127.0.0.1', 'localhost']
+ALLOWED_HOSTS = ['api.chatbothuyleui.xyz', '127.0.0.1', 'localhost']
 
 
 # Application definition
@@ -154,7 +154,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CORS configuration
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Frontend Next.js chạy tại localhost:3000
-    "https://main.d2gav7uil9elgs.amplifyapp.com"
+    "https://main.d2gav7uil9elgs.amplifyapp.com",
+    "https://www.chatbothuyleui.xyz"
 ]
 
 REST_FRAMEWORK = {
