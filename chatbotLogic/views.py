@@ -9,11 +9,15 @@ from django.contrib.auth.models import User
 from django.utils.timezone import now
 from django.http import JsonResponse
 from .models import ChatInfo, ChatMessage
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from rest_framework.parsers import MultiPartParser, FormParser
 from .utils import error_response
 from .logic.chatbot import generate_response, generate_chat_name
 from .logic.upload_image_cloudinary import upload_image_to_cloudinary
 from .logic.generative_image import generate_image_prompt
 from .logic.process_image import process_image
+from .logic.upload_files import process_document
 
 class ChatbotAPI(APIView):
     def post(self, request):
@@ -363,7 +367,77 @@ class GenerateImageAPI(APIView):
         image_response = generate_image_prompt(prompt, number_images)
 
         return JsonResponse(image_response)
-    
+
+class DocumentProcessingView(APIView):
+    parser_classes = [MultiPartParser, FormParser]  # Hỗ trợ upload file
+
+    def post(self, request):
+        if "file" not in request.FILES:
+            return JsonResponse({"error": "Tệp tin không được gửi đúng cách."}, status=400)
+        # Nhận file từ request
+        uploaded_file = request.FILES.get("file")
+        user_query = request.data.get("query", "")
+        chat_id = request.data.get("chat_id")
+
+        if not uploaded_file:
+            return JsonResponse({"error": "Vui lòng tải lên một tệp."}, status=400)
+        
+        chat_instance = ChatInfo.objects.filter(id=chat_id).first()
+        if not chat_instance:
+            return JsonResponse({"error": "Chat không tồn tại."}, status=404)
+
+        # Lưu file vào thư mục tạm thời
+        file_path = default_storage.save(f"uploads/{uploaded_file.name}", ContentFile(uploaded_file.read()))
+        full_file_path = default_storage.path(file_path)
+
+        try:
+            # Gọi Gemini API để xử lý tài liệu
+            gemini_response = process_document(full_file_path, user_query)
+
+            # Xóa file sau khi sử dụng
+            default_storage.delete(file_path)
+
+                        # 📝 **Lưu tin nhắn của người dùng vào database**
+            user_message = ChatMessage.objects.create(
+                chat=chat_instance,
+                is_bot=False,
+                message=user_query,
+                sequence=len(chat_instance.message.all()) + 1,
+                created_at=now(),
+                is_has_image=False,  # File không phải là ảnh
+                image_url=None,
+            )
+
+            # 📝 **Lưu tin nhắn của bot vào database**
+            bot_message = ChatMessage.objects.create(
+                chat=chat_instance,
+                is_bot=True,
+                message=gemini_response,
+                sequence=user_message.sequence + 1,
+                created_at=now(),
+            )
+
+            return Response({
+                "user_message": {
+                    "id": user_message.id,
+                    "message": user_message.message,
+                    "is_bot": user_message.is_bot,
+                    "created_at": user_message.created_at,
+                    "is_has_image": user_message.is_has_image,
+                    "image_url": user_message.image_url,
+                },
+                "bot_response": {
+                    "id": bot_message.id,
+                    "type": "text",
+                    "message": gemini_response,
+                    "is_bot": True,
+                    "created_at": bot_message.created_at,
+                }
+            }, status=200)
+
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
+
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
