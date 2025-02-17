@@ -30,10 +30,8 @@ class ChatbotAPI(APIView):
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Kiểm tra nếu chat_id tồn tại trong database
             chat_id = ChatInfo.objects.filter(id=chat_id).first()
             if not chat_id:
-                # Nếu không tồn tại, trả về lỗi
                 return Response({"error": "Chat not found"}, status=status.HTTP_404_NOT_FOUND)
             
             image_urls = upload_image_to_cloudinary(image_base64)
@@ -45,9 +43,9 @@ class ChatbotAPI(APIView):
                 chat=chat_id,
                 is_bot=False,
                 message=user_input,
-                sequence=len(chat_id.message.all()) + 1,  # Đếm số lượng tin nhắn
+                sequence=len(chat_id.message.all()) + 1,  
                 created_at=now(),
-                is_has_image=bool(image_urls),  # Nếu có ảnh thì đặt là True
+                is_has_image=bool(image_urls),  
                 image_url=image_urls_str
             )
             
@@ -70,7 +68,7 @@ class ChatbotAPI(APIView):
                 bot_message = ChatMessage.objects.create(
                     chat=chat_id,
                     is_bot=True,
-                    message="Generated images",  # Lưu thông báo vào cơ sở dữ liệu
+                    message="Generated images",  
                     sequence=user_message.sequence + 1,
                     created_at=now(),
                 )
@@ -159,7 +157,6 @@ class GetChatsAPI(APIView):
 
     def get(self, request):
         try:
-            username = request.user.username
             chats = ChatInfo.objects.filter(username=request.user.username).order_by("-updated_at")
 
             chats_data = [
@@ -180,13 +177,11 @@ class GetMessagesByChatAPI(APIView):
 
     def get(self, request, chat_id):
         try:
-            # Lấy đoạn chat dựa trên chat_id và username của user hiện tại
             chat = ChatInfo.objects.get(id=chat_id, username=request.user.username)
 
             # Lấy danh sách tin nhắn thuộc về đoạn chat
             messages = ChatMessage.objects.filter(chat_id=chat.id).order_by("sequence")
 
-            # Chuyển đổi tin nhắn thành định dạng JSON
             message_data = [
                 {
                     "id": message.id,
@@ -271,21 +266,19 @@ class UpdateMessageAPI(APIView):
             user_message = ChatMessage.objects.get(chat_id=chat_id, id=message_id, is_bot=False)
             user_message.message = new_text
             user_message.save()
-            print("user_message: ", user_message)
         except ChatMessage.DoesNotExist:
             return Response({"error": "Message not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Xử lý logic chatbot
         try:
-            # Gửi câu hỏi đã chỉnh sửa đến bot
             bot_response = generate_response(new_text, chat_history)
+            print("bot_response: ", bot_response)
             if not bot_response:
-                bot_response = "Không nhận được phản hồi từ bot."  # Đáp ứng mặc định nếu không có kết quả
-        
+                bot_response = "Không nhận được phản hồi từ bot."  
+            else:
+                bot_response_text = bot_response.get("bot_response", "Không nhận được phản hồi từ bot.") 
             try:
                 bot_message = ChatMessage.objects.get(chat_id=chat_id, sequence=user_message.sequence + 1, is_bot=True)
-                bot_message.message = bot_response 
-                print("bot_message: ", bot_message)
+                bot_message.message = bot_response_text
                 bot_message.save()
             except ChatMessage.DoesNotExist:
                 return Response({"error": "Bot message not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -294,7 +287,6 @@ class UpdateMessageAPI(APIView):
             print(f"Error in generate_response: {e}")
             return error_response("BOT_PROCESSING_ERROR", "Lỗi xảy ra khi xử lý phản hồi từ bot.", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Trả về phản hồi mới từ bot
         return Response({
             "message_id": message_id,
             "new_text": new_text,
@@ -363,7 +355,6 @@ class GenerateImageAPI(APIView):
         if not prompt:
             return Response({"error": "Missing prompt"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Gọi hàm tạo ảnh từ Gemini AI
         image_response = generate_image_prompt(prompt, number_images)
 
         return JsonResponse(image_response)
@@ -374,7 +365,7 @@ class DocumentProcessingView(APIView):
     def post(self, request):
         if "file" not in request.FILES:
             return JsonResponse({"error": "Tệp tin không được gửi đúng cách."}, status=400)
-        # Nhận file từ request
+
         uploaded_file = request.FILES.get("file")
         user_query = request.data.get("query", "")
         chat_id = request.data.get("chat_id")
@@ -391,24 +382,21 @@ class DocumentProcessingView(APIView):
         full_file_path = default_storage.path(file_path)
 
         try:
-            # Gọi Gemini API để xử lý tài liệu
             gemini_response = process_document(full_file_path, user_query)
 
             # Xóa file sau khi sử dụng
             default_storage.delete(file_path)
 
-                        # 📝 **Lưu tin nhắn của người dùng vào database**
             user_message = ChatMessage.objects.create(
                 chat=chat_instance,
                 is_bot=False,
                 message=user_query,
                 sequence=len(chat_instance.message.all()) + 1,
                 created_at=now(),
-                is_has_image=False,  # File không phải là ảnh
+                is_has_image=False,  
                 image_url=None,
             )
 
-            # 📝 **Lưu tin nhắn của bot vào database**
             bot_message = ChatMessage.objects.create(
                 chat=chat_instance,
                 is_bot=True,
@@ -443,10 +431,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
 
-        # Lấy thông tin user từ validated_data
         user = self.user
 
-        # Thêm thông tin user vào response
         data.update({
             "username": user.username,
             "email": user.email,
