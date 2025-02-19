@@ -12,6 +12,7 @@ urlpatterns = [
     path('chat/rename', RenameChatAPI.as_view(), name='rename_chat'),
     path('chat/remove/<chat_id>', RemoveChatApi.as_view(), name='remove_chat'),
     path('chat/update', UpdateMessageAPI.as_view(), name='update_message'),
+    path('chat/send-otp', sendOTPApi.as_view(), name='send_otp_email'),
     path('auth/register', RegisterAPI.as_view(), name='register_api'),
     path('auth/token', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/token/refresh', TokenRefreshView.as_view(), name='token_refresh'),

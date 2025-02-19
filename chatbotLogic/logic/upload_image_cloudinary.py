@@ -21,7 +21,7 @@ def upload_image_to_cloudinary(image_base64_list):
                 result = response.json()
                 image_urls.append(result["secure_url"])
             else:
-                print(f"❌ Upload thất bại: {response.json()}")
+                print(f"❌ Lỗi khi upload ảnh ({response.status_code}): {response.text}")
 
         return image_urls  # Trả về danh sách URL ảnh đã upload
 

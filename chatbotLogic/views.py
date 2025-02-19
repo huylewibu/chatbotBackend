@@ -8,7 +8,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth.models import User
 from django.utils.timezone import now
 from django.http import JsonResponse
-from .models import ChatInfo, ChatMessage
+from .models import ChatInfo, ChatMessage, OTPRegister
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -18,6 +18,10 @@ from .logic.upload_image_cloudinary import upload_image_to_cloudinary
 from .logic.generative_image import generate_image_prompt
 from .logic.process_image import process_image
 from .logic.upload_files import process_document
+from .logic.send_email import send_otp_email, is_valid_email
+from datetime import timedelta
+from django.utils import timezone
+from rest_framework import status
 
 class ChatbotAPI(APIView):
     def post(self, request):
@@ -293,33 +297,96 @@ class UpdateMessageAPI(APIView):
             "bot_response": bot_response
         })
     
-class RegisterAPI(APIView):
+class sendOTPApi(APIView):
     def post(self, request):
         username = request.data.get("username")
         email = request.data.get("email")
         password = request.data.get("password")
-        
+
         if not username or not email or not password:
-            return Response({"error": "All fields are required."}, status=400)
+            return error_response("FIELDS_REQUIRED", "Không được để trống các trường.", 400)
+        
+        if not is_valid_email(email):
+            return error_response("INVALID_EMAIL", "Email không đúng định dạng.", 400)
         
         if User.objects.filter(username=username).exists():
-            return Response({"error": "Username already exists."}, status=400)
+            return error_response("USERNAME_EXISTS", "Username đã tồn tại.", 400)
         
         try:
+            otp_code = OTPRegister.generate_code()
+            expired_at = timezone.now() + timedelta(minutes=5)
+            otp = OTPRegister.objects.create(
+                user_email=email,
+                code=otp_code,
+                expires_at=expired_at
+            )
+
+            send_otp_email(email, otp_code)
+
+            return Response({
+                "message": "OTP has been sent to your email.",
+                "email": email,
+            }, status=200)
+
+        except Exception as e:
+            return error_response(
+                "SEND_OTP_ERROR", 
+                f"Failed to send OTP: {str(e)}", 
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+class RegisterAPI(APIView):
+    def post(self, request):
+        email = request.data.get("email")
+        otp_code = request.data.get("otpCode")
+        username = request.data.get("username")
+        password = request.data.get("password")
+        
+        if not email or not otp_code or not username or not password:
+            return error_response("FIELDS_REQUIRED", "Không được để trống các trường.", 400)
+
+        try:
+            # Xóa tất cả OTP đã hết hạn
+            OTPRegister.objects.filter(expires_at__lt=timezone.now()).delete()
+
+#            Lấy OTP mới nhất còn hiệu lực
+            otp = OTPRegister.objects.filter(user_email=email).order_by('-created_at').first()
+
+            if not otp:
+                return error_response("OTP_NOT_FOUND", "OTP not found.", 404)
+
+            if otp.is_expired():
+                return error_response("OTP_EXPIRED", "Mã OTP đã hết hạn.", 400)
+            
+            if otp.code != otp_code:
+                return error_response("INVALID_OTP", "OTP nhập không đúng.", 400)
+            # Tạo tài khoản
             user = User.objects.create_user(username=username, email=email, password=password)
-            # Tạo JWT token ngay sau khi đăng ký
+
+            # Xóa OTP sau khi xác nhận thành công
+            OTPRegister.objects.filter(user_email=email).delete()
+
+            # Tạo JWT token
             refresh = RefreshToken.for_user(user)
             access_token = str(refresh.access_token)
-            
+
             return Response({
                 "message": "Registration successful.",
                 "username": username,
                 "access_token": access_token,
                 "refresh_token": str(refresh),
-            })
+            }, status=201)
+
+        except OTPRegister.DoesNotExist:
+            return error_response("OTP_NOT_FOUND", "OTP not found.", 404)
+
         except Exception as e:
-            return error_response("REGISTER_ERROR", f"Failed to register: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+            return error_response(
+                "REGISTER_ERROR",
+                f"Failed to register: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 class UserInfoAPI(APIView):
     permission_classes = [IsAuthenticated]
 

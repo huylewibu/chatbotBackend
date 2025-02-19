@@ -53,6 +53,8 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024
+
 ROOT_URLCONF = 'chatbotApi.urls'
 
 TEMPLATES = [
@@ -98,6 +100,13 @@ DATABASES = {
         'PORT': '5432',                              
     }
 }
+
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = "yukinoshita2704@gmail.com"
+EMAIL_HOST_PASSWORD = "ncur sfcj xggz gftb"
 
 
 # Password validation
