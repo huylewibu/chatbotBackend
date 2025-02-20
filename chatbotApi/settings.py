@@ -31,7 +31,6 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['api.chatbothuyleui.xyz', '127.0.0.1', 'localhost']
 
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -86,21 +85,19 @@ WSGI_APPLICATION = 'chatbotApi.wsgi.application'
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if DATABASE_URL:
-    DATABASES = {
-        'default': dj_database_url.config(default=DATABASE_URL, engine='django.db.backends.postgresql')
+# DATABASES = {
+#     'default': dj_database_url.config(default=DATABASE_URL, engine='django.db.backends.postgresql')
+# }
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',  
+        'NAME': 'railway',
+        'USER': 'postgres',
+        'PASSWORD': 'BSqQCigFjuwaSuFlZDboKKOBgSyETmef',
+        'HOST': 'yamabiko.proxy.rlwy.net',
+        'PORT': '12037',
     }
-else:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',  
-            'NAME': 'chatbotAPI',
-            'USER': 'postgres',
-            'PASSWORD': 'Yukino1234',
-            'HOST': 'localhost',
-            'PORT': '5432',
-        }
-    }
+}
 
 # DATABASES = {
 #     'default': {
@@ -176,7 +173,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Frontend Next.js chạy tại localhost:3000
     "https://main.d2gav7uil9elgs.amplifyapp.com",
-    "https://www.chatbothuyleui.xyz"
+    "https://www.chatbothuyleui.xyz",
+    "https://chatbothuyleui.xyz"
 ]
 
 REST_FRAMEWORK = {
