@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils.timezone import now
 import uuid
-from psqlextra.models import PostgresPartitionedModel
+# from psqlextra.models import PostgresPartitionedModel
 from django.db import models
 from django.utils import timezone
 import random
@@ -24,7 +24,7 @@ class ChatInfo(models.Model):
     def __str__(self):
         return f"{self.title} by {self.username}"
     
-class ChatMessage(PostgresPartitionedModel):
+class ChatMessage(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     chat = models.ForeignKey(
         ChatInfo, 
